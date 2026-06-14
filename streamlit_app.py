@@ -3,8 +3,7 @@
 import asyncio
 import os
 import sys
-import tempfile
-from datetime import datetime, timedelta
+import threading
 from pathlib import Path
 
 import streamlit as st
@@ -63,6 +62,17 @@ st.markdown("""
 }
 .ticker-chip b { color: #fafafa; }
 
+.tool-badge {
+    display: inline-block;
+    background: #1c3a2a;
+    border: 1px solid #2f6b48;
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 0.78rem;
+    color: #48bb78;
+    margin: 2px;
+}
+
 .chat-bubble-user {
     background: #2a3550;
     border-radius: 18px 18px 4px 18px;
@@ -81,23 +91,6 @@ st.markdown("""
     font-size: 0.93rem;
 }
 
-.position-row {
-    background: #1a2035;
-    border: 1px solid #2d3748;
-    border-radius: 10px;
-    padding: 14px 18px;
-    margin: 6px 0;
-}
-.position-symbol { font-size: 1.1rem; font-weight: 700; color: #fafafa; }
-.position-detail { color: #90a0b7; font-size: 0.82rem; }
-
-.upload-hint {
-    color: #90a0b7;
-    font-size: 0.85rem;
-    text-align: center;
-    margin-top: 8px;
-}
-
 .indexed-badge {
     background: #1c3a2a;
     border: 1px solid #2f6b48;
@@ -106,9 +99,21 @@ st.markdown("""
     font-size: 0.82rem;
     color: #48bb78;
     margin: 4px 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+}
+
+.lesson-card {
+    background: linear-gradient(135deg, #1a2035 0%, #1e2640 100%);
+    border: 1px solid #2d3748;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 12px;
+}
+
+.upload-hint {
+    color: #90a0b7;
+    font-size: 0.85rem;
+    text-align: center;
+    margin-top: 8px;
 }
 
 .stButton > button {
@@ -135,17 +140,118 @@ if "indexed_files" not in st.session_state:
     st.session_state.indexed_files = []
 if "_agent" not in st.session_state:
     st.session_state._agent = None
+if "_mcp" not in st.session_state:
+    st.session_state._mcp = None
+if "chat_mode" not in st.session_state:
+    st.session_state.chat_mode = "quick"
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── MCP persistent session ────────────────────────────────────────────────────
+
+class _MCPSession:
+    """Keeps all 6 MCP servers alive in a background thread across Streamlit reruns."""
+
+    def __init__(self):
+        self._loop = asyncio.new_event_loop()
+        self._agent = None
+        self._cm = None
+        self.tool_names: list[str] = []
+        self._ready = threading.Event()
+        self.error: str | None = None
+
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread.start()
+        asyncio.run_coroutine_threadsafe(self._init(), self._loop)
+
+        if not self._ready.wait(timeout=45):
+            self.error = self.error or "MCP servers did not respond within 45 s"
+
+    def _run_loop(self):
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+
+    async def _init(self):
+        from src.agents.orchestrator import _server_config, _get_llm, _get_system_prompt
+        from langchain_mcp_adapters.client import MultiServerMCPClient
+        from langchain.agents import create_agent
+        try:
+            self._cm = MultiServerMCPClient(_server_config())
+            client = await self._cm.__aenter__()
+            tools = client.get_tools()
+            self.tool_names = [t.name for t in tools]
+            self._agent = create_agent(
+                _get_llm(), tools, system_prompt=_get_system_prompt()
+            )
+        except Exception as e:
+            self.error = str(e)
+        finally:
+            self._ready.set()
+
+    def ask(self, question: str, timeout: int = 120) -> str:
+        from src.agents.orchestrator import _extract_answer
+        from langchain_core.messages import HumanMessage
+
+        async def _run():
+            return _extract_answer(
+                await self._agent.ainvoke({"messages": [HumanMessage(content=question)]})
+            )
+
+        future = asyncio.run_coroutine_threadsafe(_run(), self._loop)
+        return future.result(timeout=timeout)
+
+    def run_weekly_report(self, timeout: int = 180) -> str:
+        from src.agents.orchestrator import _extract_answer
+        from langchain_core.messages import HumanMessage
+
+        prompt = (
+            "Generate and send the weekly coach report. Do the following:\n"
+            "1. Search documents indexed this week for key findings\n"
+            "2. Get current prices for all tracked tickers\n"
+            "3. Get the paper portfolio summary\n"
+            "4. Identify 3 investment opportunities based on recent analysis\n"
+            "5. Send the weekly coach report to the 'weekly' email group "
+            "using send_weekly_coach_report\n"
+            "Write everything in plain English suitable for a beginner investor."
+        )
+
+        async def _run():
+            return _extract_answer(
+                await self._agent.ainvoke({"messages": [HumanMessage(content=prompt)]})
+            )
+
+        future = asyncio.run_coroutine_threadsafe(_run(), self._loop)
+        return future.result(timeout=timeout)
+
+    def cleanup(self):
+        async def _stop():
+            if self._cm:
+                await self._cm.__aexit__(None, None, None)
+        asyncio.run_coroutine_threadsafe(_stop(), self._loop).result(timeout=10)
+        self._loop.call_soon_threadsafe(self._loop.stop)
+
+
+def _get_mcp() -> _MCPSession | None:
+    return st.session_state._mcp
+
+
+def _start_mcp() -> _MCPSession:
+    if st.session_state._mcp is not None:
+        return st.session_state._mcp
+    session = _MCPSession()
+    st.session_state._mcp = session
+    return session
+
+
+# ── Quick RAG agent ───────────────────────────────────────────────────────────
 
 def _agent():
-    """Lazy-init the RAG agent (cached in session state)."""
     if st.session_state._agent is None:
         from src.agent import FinancialAnalyzerAgent
         st.session_state._agent = FinancialAnalyzerAgent()
     return st.session_state._agent
 
+
+# ── Market helpers ────────────────────────────────────────────────────────────
 
 def _tracked_tickers() -> list[str]:
     raw = os.getenv("TRACKED_TICKERS", "")
@@ -159,23 +265,13 @@ def _fetch_ticker_info(ticker: str) -> dict:
         price = info.get("currentPrice") or info.get("regularMarketPrice", 0) or 0
         change_pct = info.get("regularMarketChangePercent", 0) or 0
         name = info.get("shortName") or ticker
-        volume = info.get("regularMarketVolume", 0) or 0
-        mkt_cap = info.get("marketCap", 0) or 0
-        return {
-            "ticker": ticker,
-            "name": name,
-            "price": price,
-            "change_pct": change_pct,
-            "volume": volume,
-            "mkt_cap": mkt_cap,
-        }
+        return {"ticker": ticker, "name": name, "price": price, "change_pct": change_pct}
     except Exception:
-        return {"ticker": ticker, "name": ticker, "price": 0, "change_pct": 0,
-                "volume": 0, "mkt_cap": 0}
+        return {"ticker": ticker, "name": ticker, "price": 0, "change_pct": 0}
 
 
 @st.cache_data(ttl=300)
-def _fetch_history(ticker: str, period: str = "1mo") -> "pd.DataFrame":
+def _fetch_history(ticker: str, period: str = "1mo"):
     import yfinance as yf
     hist = yf.Ticker(ticker).history(period=period)
     hist.index = hist.index.tz_localize(None)
@@ -188,111 +284,77 @@ def _fetch_portfolio():
     secret = os.getenv("ALPACA_SECRET_KEY", "")
     if not api_key or not secret:
         return None, None
-
     try:
         from alpaca.trading.client import TradingClient
         client = TradingClient(api_key, secret, paper=True)
-        acct = client.get_account()
-        positions = client.get_all_positions()
-        return acct, positions
+        return client.get_account(), client.get_all_positions()
     except Exception as e:
         return None, str(e)
 
 
-def _make_line_chart(ticker: str, period: str) -> "go.Figure":
-    import plotly.graph_objects as go
+# ── Chart builders ────────────────────────────────────────────────────────────
 
+def _make_line_chart(ticker: str, period: str):
+    import plotly.graph_objects as go
     hist = _fetch_history(ticker, period)
     if hist.empty:
         return go.Figure()
-
-    first_close = hist["Close"].iloc[0]
-    last_close = hist["Close"].iloc[-1]
-    is_up = last_close >= first_close
-    line_color = "#48bb78" if is_up else "#fc8181"
-    fill_color = "rgba(72,187,120,0.08)" if is_up else "rgba(252,129,129,0.08)"
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=hist.index,
-        y=hist["Close"],
-        mode="lines",
-        line=dict(color=line_color, width=2),
-        fill="tozeroy",
-        fillcolor=fill_color,
+    is_up = hist["Close"].iloc[-1] >= hist["Close"].iloc[0]
+    color = "#48bb78" if is_up else "#fc8181"
+    fill = "rgba(72,187,120,0.08)" if is_up else "rgba(252,129,129,0.08)"
+    fig = go.Figure(go.Scatter(
+        x=hist.index, y=hist["Close"], mode="lines",
+        line=dict(color=color, width=2), fill="tozeroy", fillcolor=fill,
         hovertemplate="%{x|%b %d}<br>$%{y:,.2f}<extra></extra>",
     ))
     fig.update_layout(
-        template="plotly_dark",
-        plot_bgcolor="#1a2035",
-        paper_bgcolor="#1a2035",
-        margin=dict(l=8, r=8, t=8, b=8),
-        height=180,
+        template="plotly_dark", plot_bgcolor="#1a2035", paper_bgcolor="#1a2035",
+        margin=dict(l=8, r=8, t=8, b=8), height=180,
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(showgrid=False, zeroline=False,
-                   tickformat="$,.0f", tickfont=dict(size=10)),
+        yaxis=dict(showgrid=False, zeroline=False, tickformat="$,.0f", tickfont=dict(size=10)),
         showlegend=False,
     )
     return fig
 
 
-def _make_portfolio_pie(positions) -> "go.Figure":
+def _make_portfolio_pie(positions):
     import plotly.graph_objects as go
-
     if not positions:
         return go.Figure()
-
-    labels = [p.symbol for p in positions]
-    values = [abs(float(p.market_value)) for p in positions]
-
     fig = go.Figure(go.Pie(
-        labels=labels,
-        values=values,
+        labels=[p.symbol for p in positions],
+        values=[abs(float(p.market_value)) for p in positions],
         hole=0.55,
         textinfo="label+percent",
         textfont=dict(size=12, color="#fafafa"),
         marker=dict(
-            colors=["#4299e1", "#48bb78", "#ed8936", "#9f7aea",
-                    "#fc8181", "#38b2ac", "#f6e05e", "#76e4f7"],
+            colors=["#4299e1","#48bb78","#ed8936","#9f7aea",
+                    "#fc8181","#38b2ac","#f6e05e","#76e4f7"],
             line=dict(color="#0e1117", width=2),
         ),
     ))
     fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#1a2035",
-        plot_bgcolor="#1a2035",
-        margin=dict(l=0, r=0, t=0, b=0),
-        height=280,
-        showlegend=False,
+        template="plotly_dark", paper_bgcolor="#1a2035", plot_bgcolor="#1a2035",
+        margin=dict(l=0, r=0, t=0, b=0), height=280, showlegend=False,
     )
     return fig
 
 
-def _make_pl_bar(positions) -> "go.Figure":
+def _make_pl_bar(positions):
     import plotly.graph_objects as go
-
     if not positions:
         return go.Figure()
-
-    symbols = [p.symbol for p in positions]
     pls = [float(p.unrealized_pl) for p in positions]
-    colors = ["#48bb78" if v >= 0 else "#fc8181" for v in pls]
-
     fig = go.Figure(go.Bar(
-        x=symbols,
-        y=pls,
-        marker_color=colors,
-        text=[f"${v:+,.0f}" for v in pls],
-        textposition="outside",
+        x=[p.symbol for p in positions], y=pls,
+        marker_color=["#48bb78" if v >= 0 else "#fc8181" for v in pls],
+        text=[f"${v:+,.0f}" for v in pls], textposition="outside",
         textfont=dict(color="#fafafa", size=11),
         hovertemplate="%{x}<br>P&L: $%{y:+,.2f}<extra></extra>",
     ))
     fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#1a2035",
-        plot_bgcolor="#1a2035",
-        margin=dict(l=8, r=8, t=8, b=8),
-        height=240,
+        template="plotly_dark", paper_bgcolor="#1a2035", plot_bgcolor="#1a2035",
+        margin=dict(l=8, r=8, t=8, b=8), height=240,
         xaxis=dict(showgrid=False),
         yaxis=dict(showgrid=True, gridcolor="#2d3748", zeroline=True,
                    zerolinecolor="#4a5568", tickformat="$,.0f"),
@@ -313,7 +375,7 @@ with st.sidebar:
     page = st.radio(
         "nav",
         ["🏠  Dashboard", "📄  Upload & Analyze", "💬  Chat with Reports",
-         "💼  Portfolio", "⚙️  Settings"],
+         "📚  Learn Finance", "💼  Portfolio", "⚙️  Settings"],
         label_visibility="collapsed",
     )
 
@@ -340,8 +402,16 @@ with st.sidebar:
     else:
         st.caption("No documents indexed yet.")
 
-    coach_mode = os.getenv("COACH_MODE", "off").strip().lower() == "on"
-    if coach_mode:
+    mcp = _get_mcp()
+    if mcp and not mcp.error:
+        st.markdown("---")
+        st.markdown(f"**MCP Agents** ({len(mcp.tool_names)} tools)")
+        badges = "".join(
+            f'<span class="tool-badge">{n}</span>' for n in mcp.tool_names
+        )
+        st.markdown(badges, unsafe_allow_html=True)
+
+    if os.getenv("COACH_MODE", "off").strip().lower() == "on":
         st.markdown("---")
         st.markdown("🎓 **Coach Mode ON**")
 
@@ -362,20 +432,16 @@ def page_dashboard():
         return
 
     period_choice = st.selectbox(
-        "Chart period",
-        ["1wk", "1mo", "3mo", "6mo", "1y"],
-        index=1,
+        "Chart period", ["1wk", "1mo", "3mo", "6mo", "1y"], index=1,
         label_visibility="collapsed",
     )
 
-    # KPI row
     with st.spinner("Fetching market data..."):
         infos = [_fetch_ticker_info(t) for t in tickers]
 
     cols = st.columns(min(len(tickers), 4))
     for i, info in enumerate(infos):
-        col = cols[i % len(cols)]
-        with col:
+        with cols[i % len(cols)]:
             pct = info["change_pct"]
             sign = "+" if pct >= 0 else ""
             cls = "pos" if pct >= 0 else "neg"
@@ -391,9 +457,6 @@ def page_dashboard():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Price charts — 2 per row
-    import plotly.graph_objects as go
-
     for row_start in range(0, len(tickers), 2):
         chunk = tickers[row_start:row_start + 2]
         cols = st.columns(len(chunk))
@@ -401,8 +464,11 @@ def page_dashboard():
             with col:
                 st.markdown(f"**{ticker}** — {period_choice} price history")
                 try:
-                    fig = _make_line_chart(ticker, period_choice)
-                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+                    st.plotly_chart(
+                        _make_line_chart(ticker, period_choice),
+                        use_container_width=True,
+                        config={"displayModeBar": False},
+                    )
                 except Exception as e:
                     st.error(f"Could not load chart: {e}")
 
@@ -421,14 +487,15 @@ def page_upload():
         accept_multiple_files=True,
         help="Supports PDF and Excel financial reports",
     )
-    st.markdown('<p class="upload-hint">Supported: PDF, XLSX, XLS · Files are saved to data/raw/</p>',
-                unsafe_allow_html=True)
+    st.markdown(
+        '<p class="upload-hint">Supported: PDF, XLSX, XLS · Files are saved to data/raw/</p>',
+        unsafe_allow_html=True,
+    )
 
     if uploaded:
         if st.button("📥 Index Selected Files", type="primary"):
             raw_dir = Path("data/raw")
             raw_dir.mkdir(parents=True, exist_ok=True)
-
             progress = st.progress(0, text="Starting...")
             status = st.empty()
             agent = _agent()
@@ -437,7 +504,6 @@ def page_upload():
                 dest = raw_dir / f.name
                 dest.write_bytes(f.read())
                 status.markdown(f"**Indexing** `{f.name}`...")
-
                 try:
                     chunks = agent.index_report(str(dest))
                     if str(dest) not in st.session_state.indexed_files:
@@ -445,15 +511,12 @@ def page_upload():
                     st.success(f"✅ {f.name} — {chunks} chunks indexed")
                 except Exception as e:
                     st.error(f"❌ {f.name}: {e}")
-
-                progress.progress((i + 1) / len(uploaded),
-                                  text=f"{i+1}/{len(uploaded)} files done")
+                progress.progress((i + 1) / len(uploaded), text=f"{i+1}/{len(uploaded)} files done")
 
             status.empty()
             progress.empty()
             st.balloons()
 
-    # Show already-indexed docs from data/raw
     raw_dir = Path("data/raw")
     if raw_dir.exists():
         existing = sorted(raw_dir.glob("*.pdf")) + sorted(raw_dir.glob("*.xls*"))
@@ -463,12 +526,10 @@ def page_upload():
             for f in existing:
                 size_kb = f.stat().st_size // 1024
                 indexed = str(f) in st.session_state.indexed_files
-                badge = "✅ Indexed" if indexed else "⬜ Not indexed"
                 col1, col2, col3 = st.columns([5, 2, 2])
                 col1.markdown(f"**{f.name}**")
                 col2.markdown(f"`{size_kb} KB`")
-                col3.markdown(badge)
-
+                col3.markdown("✅ Indexed" if indexed else "⬜ Not indexed")
                 if not indexed:
                     if st.button(f"Index {f.name}", key=f"idx_{f.name}"):
                         with st.spinner(f"Indexing {f.name}..."):
@@ -485,14 +546,58 @@ def page_chat():
     st.markdown("""
     <div class="page-header">
       <h2>💬 Chat with Your Reports</h2>
-      <p>Ask questions about indexed financial documents — the AI searches and cites sources</p>
+      <p>Ask questions — or let the full agent team search, trade, email and coach you</p>
     </div>
     """, unsafe_allow_html=True)
 
-    if not st.session_state.indexed_files:
+    # ── Mode selector ────────────────────────────────────────────────────────
+    col_mode, col_clear = st.columns([5, 1])
+    with col_mode:
+        mode = st.radio(
+            "Agent mode",
+            ["⚡ Quick (RAG only)", "🤖 Full MCP Agents (email · trading · market · coach)"],
+            horizontal=True,
+            key="mode_radio",
+        )
+    with col_clear:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🗑️ Clear", key="clear_chat"):
+            st.session_state.messages = []
+            st.rerun()
+
+    use_mcp = "MCP" in mode
+
+    # ── MCP connection ───────────────────────────────────────────────────────
+    mcp = None
+    if use_mcp:
+        mcp = _get_mcp()
+        if mcp is None:
+            st.info("Connecting to MCP agents... (first time takes ~15 s)")
+            with st.spinner("Starting 6 MCP servers..."):
+                try:
+                    mcp = _start_mcp()
+                except Exception as e:
+                    st.error(f"MCP failed to start: {e}")
+                    mcp = None
+
+        if mcp and mcp.error:
+            st.error(f"MCP error: {mcp.error}")
+            mcp = None
+
+        if mcp:
+            badges = " ".join(
+                f'<span class="tool-badge">{n}</span>' for n in mcp.tool_names
+            )
+            st.markdown(
+                f"✅ **{len(mcp.tool_names)} tools active** — {badges}",
+                unsafe_allow_html=True,
+            )
+            st.markdown("")
+
+    if not st.session_state.indexed_files and not use_mcp:
         st.warning("No documents indexed yet. Go to **Upload & Analyze** to index some reports first.")
 
-    # Render chat history
+    # ── Render history ───────────────────────────────────────────────────────
     for msg in st.session_state.messages:
         if msg["role"] == "user":
             st.markdown(
@@ -507,8 +612,12 @@ def page_chat():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Input
-    user_input = st.chat_input("Ask about your financial reports...")
+    # ── Input ────────────────────────────────────────────────────────────────
+    placeholder = (
+        "Ask anything — the agents will search reports, check live prices, simulate trades..."
+        if use_mcp else "Ask about your indexed financial reports..."
+    )
+    user_input = st.chat_input(placeholder)
 
     if user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
@@ -516,10 +625,13 @@ def page_chat():
             f'<div class="chat-bubble-user">🧑 {user_input}</div>',
             unsafe_allow_html=True,
         )
-
-        with st.spinner("Searching reports and generating answer..."):
+        label = "Full agent team working..." if use_mcp else "Searching reports..."
+        with st.spinner(label):
             try:
-                answer = _agent().ask(user_input)
+                if use_mcp and mcp:
+                    answer = mcp.ask(user_input)
+                else:
+                    answer = _agent().ask(user_input)
             except Exception as e:
                 answer = f"⚠️ Error: {e}"
 
@@ -529,23 +641,47 @@ def page_chat():
             unsafe_allow_html=True,
         )
 
-    col1, col2 = st.columns([8, 2])
-    with col2:
-        if st.button("🗑️ Clear Chat"):
-            st.session_state.messages = []
-            st.rerun()
+    # ── Weekly report (MCP only) ─────────────────────────────────────────────
+    if use_mcp and mcp:
+        st.markdown("---")
+        col_btn, col_info = st.columns([2, 5])
+        with col_btn:
+            send = st.button("📧 Send Weekly Coach Report", type="secondary")
+        with col_info:
+            st.caption(
+                "Generates a personalised summary and emails it to everyone "
+                "in your 'weekly' group. Requires email to be configured."
+            )
+        if send:
+            with st.spinner("Generating and sending weekly report..."):
+                try:
+                    result = mcp.run_weekly_report()
+                    st.success("Report sent!")
+                    st.markdown(result)
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
-    # Suggested questions
+    # ── Suggested questions (empty state) ────────────────────────────────────
     if not st.session_state.messages:
         st.markdown("---")
         st.markdown("**Try asking:**")
-        suggestions = [
-            "What is the revenue for the latest fiscal year?",
-            "What are the key risk factors mentioned?",
-            "Summarize the company's competitive position.",
-            "What is the debt-to-equity ratio?",
-            "What does management say about future growth?",
-        ]
+        if use_mcp:
+            suggestions = [
+                "What is the current price of AAPL?",
+                "Analyze apple_2025.pdf and give me a coach summary",
+                "What are the latest news for NVDA?",
+                "Simulate buying 5 shares of AAPL",
+                "What is the revenue for the latest fiscal year?",
+                "Send an alert email about today's market movement",
+            ]
+        else:
+            suggestions = [
+                "What is the revenue for the latest fiscal year?",
+                "What are the key risk factors mentioned?",
+                "Summarize the company's competitive position.",
+                "What is the debt-to-equity ratio?",
+                "What does management say about future growth?",
+            ]
         cols = st.columns(2)
         for i, q in enumerate(suggestions):
             with cols[i % 2]:
@@ -553,11 +689,42 @@ def page_chat():
                     st.session_state.messages.append({"role": "user", "content": q})
                     with st.spinner("Thinking..."):
                         try:
-                            answer = _agent().ask(q)
+                            answer = mcp.ask(q) if (use_mcp and mcp) else _agent().ask(q)
                         except Exception as e:
                             answer = f"⚠️ Error: {e}"
                     st.session_state.messages.append({"role": "assistant", "content": answer})
                     st.rerun()
+
+
+def page_learn():
+    from src.education import LESSONS
+
+    st.markdown("""
+    <div class="page-header">
+      <h2>📚 Learn Finance</h2>
+      <p>Six beginner-friendly lessons — read at your own pace</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    lesson_titles = [f"{k}. {v['title']}" for k, v in LESSONS.items()]
+    choice = st.selectbox("Choose a lesson", lesson_titles, label_visibility="collapsed")
+    key = choice.split(".")[0].strip()
+    lesson = LESSONS[key]
+
+    st.markdown(f"""
+    <div class="lesson-card">
+      <h3 style="color:#4299e1; margin-top:0;">{lesson['title']}</h3>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown(lesson["content"])
+
+    st.markdown("---")
+    st.markdown("**All lessons**")
+    tabs = st.tabs([v["title"] for v in LESSONS.values()])
+    for tab, (_, lesson_data) in zip(tabs, LESSONS.items()):
+        with tab:
+            st.markdown(lesson_data["content"])
 
 
 def page_portfolio():
@@ -568,12 +735,10 @@ def page_portfolio():
     </div>
     """, unsafe_allow_html=True)
 
-    api_key = os.getenv("ALPACA_API_KEY", "")
-    if not api_key:
+    if not os.getenv("ALPACA_API_KEY", ""):
         st.info(
             "Alpaca Paper Trading is not configured yet.\n\n"
-            "Run the terminal app (`python main.py`) and go to **Settings → Alpaca Paper Trading** to set up your free account.\n\n"
-            "👉 Sign up free at [alpaca.markets](https://alpaca.markets)"
+            "Run `python main.py` → **Settings → Alpaca Paper Trading** to set up your free account."
         )
         return
 
@@ -585,63 +750,41 @@ def page_portfolio():
         return
 
     if acct is None:
-        st.error("Failed to load portfolio. Check your Alpaca API keys in Settings.")
+        st.error("Failed to load portfolio. Check your Alpaca API keys.")
         return
 
-    # ── Account KPIs ──
     equity = float(acct.equity)
     cash = float(acct.cash)
     last_equity = float(acct.last_equity)
-    portfolio_value = float(acct.portfolio_value)
     day_pl = equity - last_equity
     day_pl_pct = (day_pl / last_equity * 100) if last_equity else 0.0
-    buying_power = float(acct.buying_power)
-
     pl_class = "pos" if day_pl >= 0 else "neg"
     pl_arrow = "▲" if day_pl >= 0 else "▼"
 
     c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.markdown(f"""
-        <div class="kpi-card">
-          <div class="kpi-label">Portfolio Value</div>
-          <div class="kpi-value">${portfolio_value:,.2f}</div>
-          <div class="kpi-delta" style="color:#90a0b7;">Total equity</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with c2:
-        st.markdown(f"""
-        <div class="kpi-card">
-          <div class="kpi-label">Day P&amp;L</div>
-          <div class="kpi-value {pl_class}">${day_pl:+,.2f}</div>
-          <div class="kpi-delta {pl_class}">{pl_arrow} {day_pl_pct:+.2f}% today</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with c3:
-        st.markdown(f"""
-        <div class="kpi-card">
-          <div class="kpi-label">Cash Available</div>
-          <div class="kpi-value">${cash:,.2f}</div>
-          <div class="kpi-delta" style="color:#90a0b7;">Uninvested</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with c4:
-        st.markdown(f"""
-        <div class="kpi-card">
-          <div class="kpi-label">Buying Power</div>
-          <div class="kpi-value">${buying_power:,.2f}</div>
-          <div class="kpi-delta" style="color:#90a0b7;">Available to trade</div>
-        </div>
-        """, unsafe_allow_html=True)
+    for col, label, val, delta, delta_cls in [
+        (c1, "Portfolio Value", f"${float(acct.portfolio_value):,.2f}", "Total equity", ""),
+        (c2, "Day P&L", f"${day_pl:+,.2f}", f"{pl_arrow} {day_pl_pct:+.2f}% today", pl_class),
+        (c3, "Cash Available", f"${cash:,.2f}", "Uninvested", ""),
+        (c4, "Buying Power", f"${float(acct.buying_power):,.2f}", "Available to trade", ""),
+    ]:
+        with col:
+            st.markdown(f"""
+            <div class="kpi-card">
+              <div class="kpi-label">{label}</div>
+              <div class="kpi-value">{val}</div>
+              <div class="kpi-delta {delta_cls}" style="color:{'inherit' if not delta_cls else ''}">
+                {delta}
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
 
     if not positions:
         st.markdown("<br>", unsafe_allow_html=True)
-        st.info("No open positions yet. Use the **Chat** page to analyze reports and ask the AI for trade ideas, then simulate a buy via the terminal.")
+        st.info("No open positions yet. Use **Chat → Full MCP Agents** to simulate your first trade.")
         return
 
     st.markdown("<br>", unsafe_allow_html=True)
-
-    # ── Charts row ──
     col_pie, col_bar = st.columns(2)
     with col_pie:
         st.markdown("**Portfolio Allocation**")
@@ -652,27 +795,21 @@ def page_portfolio():
         st.plotly_chart(_make_pl_bar(positions), use_container_width=True,
                         config={"displayModeBar": False})
 
-    # ── Positions table ──
     st.markdown("### Open Positions")
     for pos in positions:
         pl = float(pos.unrealized_pl)
         pl_pct = float(pos.unrealized_plpc) * 100
-        mkt_val = float(pos.market_value)
-        avg = float(pos.avg_entry_price)
-        cur = float(pos.current_price)
-        qty = float(pos.qty)
         pl_class = "pos" if pl >= 0 else "neg"
         pl_arrow = "▲" if pl >= 0 else "▼"
-
         c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 2, 3])
         with c1:
             st.markdown(f"**{pos.symbol}**")
-            st.caption(f"{qty:g} shares")
+            st.caption(f"{float(pos.qty):g} shares")
         with c2:
-            st.markdown(f"${cur:,.2f}")
-            st.caption(f"avg ${avg:,.2f}")
+            st.markdown(f"${float(pos.current_price):,.2f}")
+            st.caption(f"avg ${float(pos.avg_entry_price):,.2f}")
         with c3:
-            st.markdown(f"${mkt_val:,.2f}")
+            st.markdown(f"${float(pos.market_value):,.2f}")
             st.caption("market value")
         with c4:
             st.markdown(
@@ -685,28 +822,20 @@ def page_portfolio():
                 hist = _fetch_history(pos.symbol, "1wk")
                 if not hist.empty:
                     import plotly.graph_objects as go
-                    line_color = "#48bb78" if pl >= 0 else "#fc8181"
                     fig = go.Figure(go.Scatter(
-                        x=hist.index,
-                        y=hist["Close"],
-                        mode="lines",
-                        line=dict(color=line_color, width=1.5),
+                        x=hist.index, y=hist["Close"], mode="lines",
+                        line=dict(color="#48bb78" if pl >= 0 else "#fc8181", width=1.5),
                     ))
                     fig.update_layout(
                         template="plotly_dark",
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        margin=dict(l=0, r=0, t=0, b=0),
-                        height=50,
-                        xaxis=dict(visible=False),
-                        yaxis=dict(visible=False),
+                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                        margin=dict(l=0, r=0, t=0, b=0), height=50,
+                        xaxis=dict(visible=False), yaxis=dict(visible=False),
                         showlegend=False,
                     )
-                    st.plotly_chart(fig, use_container_width=True,
-                                    config={"displayModeBar": False})
+                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
             except Exception:
                 pass
-
         st.divider()
 
     if st.button("🔄 Refresh Portfolio"):
@@ -727,10 +856,10 @@ def page_settings():
         "and go to **Settings** from the terminal menu."
     )
 
-    def _mask(val: str, show: int = 4) -> str:
+    def _mask(val: str) -> str:
         if not val:
             return "❌ Not set"
-        return f"✅ `{'*' * 8}{val[-show:]}`"
+        return f"✅ `{'*' * 8}{val[-4:]}`"
 
     configs = {
         "Core": {
@@ -784,6 +913,8 @@ elif "Upload" in page:
     page_upload()
 elif "Chat" in page:
     page_chat()
+elif "Learn" in page:
+    page_learn()
 elif "Portfolio" in page:
     page_portfolio()
 elif "Settings" in page:
