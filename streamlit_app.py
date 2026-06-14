@@ -116,11 +116,21 @@ if not tickers:
     st.info("Add tickers in **Settings → Tracked Tickers** to see opportunities.")
 else:
     # Bucket tickers by risk category
+    all_infos = [get_ticker_info(t) for t in tickers]
     buckets: dict[str, list] = {"high": [], "moderate": [], "low": []}
-    for t in tickers:
-        info = get_ticker_info(t)
-        cat  = risk_category(info)
-        buckets[cat].append(info)
+    for info in all_infos:
+        buckets[risk_category(info)].append(info)
+
+    # Fallback: if a bucket is empty, fill it with the closest match
+    if not buckets["low"] and all_infos:
+        buckets["low"] = [min(all_infos, key=lambda x: x.get("beta") or 1.0)]
+    if not buckets["high"] and all_infos:
+        buckets["high"] = [max(all_infos, key=lambda x: x.get("beta") or 1.0)]
+    if not buckets["moderate"] and all_infos:
+        used = {buckets["low"][0]["ticker"], buckets["high"][0]["ticker"]}
+        rest = [i for i in all_infos if i["ticker"] not in used]
+        if rest:
+            buckets["moderate"] = [rest[0]]
 
     risk_cfg = {
         "high":     ("🔴", "High Risk · High Reward", "#ff4757",

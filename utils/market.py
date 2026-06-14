@@ -178,13 +178,12 @@ def compute_health_score(info: dict) -> tuple[int, list[str], list[str]]:
 
 
 def risk_category(info: dict) -> str:
-    """Return 'high', 'moderate', or 'low' based on beta and dividend."""
+    """Return 'high', 'moderate', or 'low' based on beta."""
     beta = info.get("beta") or 1.0
-    div = info.get("dividend") or 0
     mkt_cap = info.get("market_cap") or 0
-    if beta > 1.5 or mkt_cap < 5e9:
+    if beta > 1.3 or mkt_cap < 5e9:
         return "high"
-    if beta < 0.8 and div > 1.0:
+    if beta < 0.95:
         return "low"
     return "moderate"
 
