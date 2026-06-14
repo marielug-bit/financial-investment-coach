@@ -215,7 +215,11 @@ else:
 
 # ── Buy a Stock ───────────────────────────────────────────────────────────────
 section("🛒 Buy a Stock (Simulated)")
-with st.expander("▶ Open Buy Flow", expanded=False):
+
+if "buy_success" not in st.session_state:
+    st.session_state.buy_success = None
+
+with st.expander("▶ Open Buy Flow", expanded=st.session_state.get("buy_open", False)):
     b_query = st.text_input("Search company or ticker", placeholder="Apple, NVDA…", key="buy_q")
     if b_query:
         b_ticker = resolve_ticker(b_query)
@@ -241,47 +245,38 @@ with st.expander("▶ Open Buy Flow", expanded=False):
                 st.markdown("""
                 <div style="background:rgba(255,193,7,.08);border:1px solid #ffc107;
                     border-radius:10px;padding:12px;font-size:.82rem;color:#ffc107;margin:8px 0">
-                  ⚠️ <b>This is simulated money only — no real money is involved.</b>
+                  ⚠️ <b>Simulated money only — no real money involved.</b>
+                  Orders execute at the next market open.
                 </div>
                 """, unsafe_allow_html=True)
 
-                if st.button(f"✅ Confirm Buy {qty_buy} × {b_ticker}", type="primary",
-                             use_container_width=True):
-                    # Preview first
-                    with st.spinner("Previewing order…"):
+                if st.button(f"🚀 Buy {qty_buy} share(s) of {b_ticker}", type="primary",
+                             use_container_width=True, key="exec_buy"):
+                    with st.spinner(f"Placing order for {b_ticker}…"):
                         try:
-                            from src.agents.orchestrator import run_query
-                            preview = asyncio.run(run_query(
-                                f"Preview buying {qty_buy} shares of {b_ticker}"
+                            from alpaca.trading.client import TradingClient
+                            from alpaca.trading.requests import MarketOrderRequest
+                            from alpaca.trading.enums import OrderSide, TimeInForce
+                            tc = TradingClient(api_key, secret, paper=True)
+                            order = tc.submit_order(MarketOrderRequest(
+                                symbol=b_ticker,
+                                qty=qty_buy,
+                                side=OrderSide.BUY,
+                                time_in_force=TimeInForce.GTC,  # Good Till Cancelled — works outside market hours
                             ))
-                        except Exception:
-                            preview = f"Simulated buy: {qty_buy} × {b_ticker} at ~{format_price(b_price)} = {format_price(total)}"
-                    st.info(preview)
-
-                    col_confirm, col_cancel = st.columns(2)
-                    with col_confirm:
-                        if st.button("🚀 Execute Trade", type="primary", use_container_width=True,
-                                     key="exec_trade"):
-                            with st.spinner("Placing order…"):
-                                try:
-                                    from alpaca.trading.client import TradingClient
-                                    from alpaca.trading.requests import MarketOrderRequest
-                                    from alpaca.trading.enums import OrderSide, TimeInForce
-                                    tc = TradingClient(api_key, secret, paper=True)
-                                    tc.submit_order(MarketOrderRequest(
-                                        symbol=b_ticker, qty=qty_buy,
-                                        side=OrderSide.BUY, time_in_force=TimeInForce.DAY,
-                                    ))
-                                    _load_alpaca.clear()
-                                    st.balloons()
-                                    st.success(f"✅ Bought {qty_buy} shares of {b_ticker}! (Simulated)")
-                                except Exception as e:
-                                    st.error(f"Order failed: {e}")
-                    with col_cancel:
-                        if st.button("✖ Cancel", use_container_width=True, key="cancel_trade"):
+                            _load_alpaca.clear()
+                            st.session_state.buy_success = f"{qty_buy} × {b_ticker} | order #{str(order.id)[:8]}…"
+                            st.session_state.buy_open = False
+                            st.balloons()
                             st.rerun()
+                        except Exception as e:
+                            st.error(f"Order failed: {e}")
         else:
-            st.warning(f"Could not find price for '{b_ticker}'. Try the ticker symbol directly.")
+            st.warning(f"Could not find '{b_ticker}'. Try the ticker symbol directly (e.g. AAPL).")
+
+if st.session_state.buy_success:
+    st.success(f"✅ Order submitted: {st.session_state.buy_success} — will appear in Positions once the market opens (Mon 9:30 ET)")
+    st.session_state.buy_success = None
 
 if st.button("🔄 Refresh Portfolio", use_container_width=True):
     _load_alpaca.clear()
