@@ -216,9 +216,7 @@ with col_alp2:
 section("🔑 API Keys")
 
 API_FIELDS = [
-    ("ANTHROPIC_API_KEY",   "Anthropic (Claude AI)",  "sk-ant-…"),
-    ("EMAIL_SMTP_PASSWORD", "Email SMTP Password",    "App password from Gmail"),
-    ("EMAIL_FROM",          "From Email Address",     "you@gmail.com"),
+    ("ANTHROPIC_API_KEY", "Anthropic (Claude AI)", "sk-ant-…"),
 ]
 
 for env_key, label, placeholder in API_FIELDS:
