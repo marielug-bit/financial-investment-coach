@@ -50,17 +50,23 @@ GLOSSARY: dict[str, str] = {
 
 
 OPPORTUNITY_UNIVERSE: dict[str, list[str]] = {
+    # High volatility: beta > 1.5, can easily move ±20-40% in weeks
     "high": [
         "NVDA", "TSLA", "COIN", "PLTR", "MRNA", "SNOW", "SPOT",
-        "UBER", "ABNB", "AMD", "SHOP", "RBLX", "HOOD", "SOFI",
+        "AMD", "SHOP", "RBLX", "SOFI", "HOOD", "SMCI", "MSTR",
+        "ARKK", "IONQ", "RIOT", "MARA", "LUNR", "JOBY",
     ],
+    # Moderate volatility: established tech/growth, typical ±10-20% swings
     "moderate": [
         "AAPL", "MSFT", "GOOGL", "META", "AMZN", "NFLX", "CRM",
-        "ORCL", "ADBE", "INTC", "QCOM", "PYPL", "DIS", "SBUX",
+        "ORCL", "ADBE", "QCOM", "PYPL", "DIS", "SBUX", "UBER",
+        "ABNB", "SQ", "INTC", "SNAP", "PINS", "ZM",
     ],
+    # Low volatility: blue chips & defensives, slow steady growers
     "low": [
         "JNJ", "KO", "PEP", "WMT", "XOM", "CVX", "V",
-        "MA", "PFE", "MCD", "PG", "T", "VZ", "IBM",
+        "MA", "MCD", "PG", "KHC", "CL", "GIS", "HSY",
+        "O", "NEE", "DUK", "AWK", "ED", "T",
     ],
 }
 

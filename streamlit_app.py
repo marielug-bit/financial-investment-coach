@@ -112,12 +112,12 @@ for col, (emoji, label, path) in zip(cols, nav_items):
 section("💡 Investment Opportunities Today")
 
 risk_cfg = {
-    "high":     ("🔴", "High Risk · High Reward", "#ff4757",
-                 "More volatile — bigger swings up AND down."),
-    "moderate": ("🟡", "Moderate Risk",            "#ffc107",
-                 "Balanced option — not too wild, not too boring."),
-    "low":      ("🟢", "Low Risk · Stable",        "#00d4aa",
-                 "Steady performer — lower reward but fewer surprises."),
+    "high":     ("🔴", "High Volatility", "#ff4757",
+                 "Can surge +30% or crash -30% in weeks. Exciting but unpredictable."),
+    "moderate": ("🟡", "Moderate Volatility", "#ffc107",
+                 "Can gain or lose 10–20% over months. Manageable swings."),
+    "low":      ("🟢", "Low Volatility · Slow & Steady", "#00d4aa",
+                 "Grows slowly and reliably. Rarely big surprises up or down."),
 }
 
 tickers = tracked_tickers()
@@ -159,27 +159,33 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── News Feed ─────────────────────────────────────────────────────────────────
-if tickers:
-    section("📰 Latest News")
-    news_cols = st.columns(min(len(tickers), 3), gap="small")
-    for col, t in zip(news_cols, tickers[:3]):
-        with col:
-            st.markdown(f"**{t}**")
-            articles = get_news(t, limit=3)
-            if articles:
-                for a in articles:
-                    title = a.get("title") or ""
-                    url   = a.get("url") or "#"
-                    src   = a.get("source") or ""
-                    if title:
-                        st.markdown(f"""
-                        <div class="news-item">
-                          <div class="news-title">
-                            <a href="{url}" target="_blank"
-                               style="color:#fff;text-decoration:none">{title}</a>
-                          </div>
-                          <div class="news-meta">{src}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-            else:
-                st.caption("No recent news found.")
+section("📰 Latest News")
+news_cols = st.columns(3, gap="small")
+for col, (cat, t) in zip(news_cols, today_picks.items()):
+    icon, label, color, _ = risk_cfg[cat]
+    with col:
+        st.markdown(
+            f'<div style="color:{color};font-size:.72rem;font-weight:800;'
+            f'text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">'
+            f'{icon} {label}</div>'
+            f'<div style="color:#fff;font-weight:700;margin-bottom:8px">{t}</div>',
+            unsafe_allow_html=True,
+        )
+        articles = get_news(t, limit=3)
+        if articles:
+            for a in articles:
+                title = a.get("title") or ""
+                url   = a.get("url") or "#"
+                src   = a.get("source") or ""
+                if title:
+                    st.markdown(f"""
+                    <div class="news-item">
+                      <div class="news-title">
+                        <a href="{url}" target="_blank"
+                           style="color:#fff;text-decoration:none">{title}</a>
+                      </div>
+                      <div class="news-meta">{src}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        else:
+            st.caption("No recent news found.")
