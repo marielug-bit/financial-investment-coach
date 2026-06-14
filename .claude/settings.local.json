@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -A \"Mozilla/5.0\" \"https://efts.sec.gov/LATEST/search-index?q=%22aapl-20240928%22&dateRange=custom&startdt=2024-10-01&enddt=2024-12-31&forms=10-K\")",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(.venv/bin/python -c \"from langchain_mcp_adapters.client import MultiServerMCPClient; help\\(MultiServerMCPClient.__init__\\)\")",
+      "Bash(.venv/bin/python *)",
+      "Bash(.venv/bin/pytest *)",
+      "Bash(gtimeout 5 .venv/bin/python -m src.mcp_servers.market_server)",
+      "Bash(Read /private/tmp/claude-501/-Users-mariekrammer-Documents-financial-analyzer/6fb512bb-d04a-4a3f-bc00-daa6fe45fe40/tasks/b1mastpum.output)",
+      "Bash(kill %1)",
+      "Bash(chromium-cli *)",
+      "Bash(pkill -f \"streamlit run streamlit_app.py\")",
+      "Bash(.venv/bin/streamlit run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8502/)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(open *)"
+    ]
+  }
+}
