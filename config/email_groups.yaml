@@ -1,0 +1,22 @@
+groups:
+  # Personal reports and trade confirmations
+  me:
+  - mariekram@gmail.com
+
+  # Urgent signals only (big price drops, strong buy opportunities)
+  alerts:
+  - mariekram@gmail.com
+
+  # Weekly portfolio and market summary (sent every Monday)
+  weekly:
+  - mariekram@gmail.com
+
+  # Legacy groups — kept as-is
+  management:
+  - mariekram@gmail.com
+  - marie.krammer1@mail.huji.ac.il
+  - davidlugasse@gmail.com
+  marie:
+  - mariekram@gmail.com
+  tous:
+  - mariekram@gmail.com
