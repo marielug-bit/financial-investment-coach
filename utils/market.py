@@ -49,6 +49,31 @@ GLOSSARY: dict[str, str] = {
 }
 
 
+OPPORTUNITY_UNIVERSE: dict[str, list[str]] = {
+    "high": [
+        "NVDA", "TSLA", "COIN", "PLTR", "MRNA", "SNOW", "SPOT",
+        "UBER", "ABNB", "AMD", "SHOP", "RBLX", "HOOD", "SOFI",
+    ],
+    "moderate": [
+        "AAPL", "MSFT", "GOOGL", "META", "AMZN", "NFLX", "CRM",
+        "ORCL", "ADBE", "INTC", "QCOM", "PYPL", "DIS", "SBUX",
+    ],
+    "low": [
+        "JNJ", "KO", "PEP", "WMT", "XOM", "CVX", "V",
+        "MA", "PFE", "MCD", "PG", "T", "VZ", "IBM",
+    ],
+}
+
+
+def daily_opportunities() -> dict[str, str]:
+    """Return one ticker per risk category, rotating daily."""
+    ordinal = datetime.date.today().toordinal()
+    return {
+        cat: tickers[ordinal % len(tickers)]
+        for cat, tickers in OPPORTUNITY_UNIVERSE.items()
+    }
+
+
 def resolve_ticker(query: str) -> str:
     """Convert company name or ticker to a valid ticker symbol."""
     q = query.strip().lower()

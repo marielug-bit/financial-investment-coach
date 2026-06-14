@@ -10,7 +10,7 @@ load_dotenv()
 from utils.theme import inject_css, section
 from utils.market import (
     tracked_tickers, get_ticker_info, get_news,
-    concept_of_day, risk_category, format_price, one_line_description,
+    concept_of_day, format_price, one_line_description, daily_opportunities,
 )
 
 st.set_page_config(
@@ -111,73 +111,41 @@ for col, (emoji, label, path) in zip(cols, nav_items):
 # ── Investment Opportunities ──────────────────────────────────────────────────
 section("💡 Investment Opportunities Today")
 
-tickers = tracked_tickers()
-if not tickers:
-    st.info("Add tickers in **Settings → Tracked Tickers** to see opportunities.")
-else:
-    # Bucket tickers by risk category
-    all_infos = [get_ticker_info(t) for t in tickers]
-    buckets: dict[str, list] = {"high": [], "moderate": [], "low": []}
-    for info in all_infos:
-        buckets[risk_category(info)].append(info)
+risk_cfg = {
+    "high":     ("🔴", "High Risk · High Reward", "#ff4757",
+                 "More volatile — bigger swings up AND down."),
+    "moderate": ("🟡", "Moderate Risk",            "#ffc107",
+                 "Balanced option — not too wild, not too boring."),
+    "low":      ("🟢", "Low Risk · Stable",        "#00d4aa",
+                 "Steady performer — lower reward but fewer surprises."),
+}
 
-    # Fallback: if a bucket is empty, fill it with the closest match
-    if not buckets["low"] and all_infos:
-        buckets["low"] = [min(all_infos, key=lambda x: x.get("beta") or 1.0)]
-    if not buckets["high"] and all_infos:
-        buckets["high"] = [max(all_infos, key=lambda x: x.get("beta") or 1.0)]
-    if not buckets["moderate"] and all_infos:
-        used = {buckets["low"][0]["ticker"], buckets["high"][0]["ticker"]}
-        rest = [i for i in all_infos if i["ticker"] not in used]
-        if rest:
-            buckets["moderate"] = [rest[0]]
-
-    risk_cfg = {
-        "high":     ("🔴", "High Risk · High Reward", "#ff4757",
-                     "More volatile — bigger swings up AND down."),
-        "moderate": ("🟡", "Moderate Risk",            "#ffc107",
-                     "Balanced option — not too wild, not too boring."),
-        "low":      ("🟢", "Low Risk · Stable",        "#00d4aa",
-                     "Steady performer — lower reward but fewer surprises."),
-    }
-
-    opp_cols = st.columns(3, gap="small")
-    for col, (cat, (icon, label, color, default_why)) in zip(opp_cols, risk_cfg.items()):
-        with col:
-            pool = buckets[cat]
-            if pool:
-                info = pool[0]
-                pct   = info["change_pct"]
-                arrow = "▲" if pct >= 0 else "▼"
-                pct_c = "#00d4aa" if pct >= 0 else "#ff4757"
-                why   = one_line_description(info) or default_why
-                if len(why) > 110: why = why[:107] + "…"
-                st.markdown(f"""
-                <div class="opp-card">
-                  <div class="opp-bar" style="background:{color}"></div>
-                  <div class="risk-lbl" style="color:{color}">{icon} {label}</div>
-                  <div class="opp-name">{info['name']}</div>
-                  <div class="opp-price">
-                    {format_price(info['price'])}
-                    &nbsp;<span style="color:{pct_c}">{arrow} {pct:+.2f}%</span>
-                  </div>
-                  <div class="opp-why">{why}</div>
-                </div>
-                """, unsafe_allow_html=True)
-                if st.button(f"Analyze {info['ticker']} →", key=f"opp_{cat}",
-                             use_container_width=True):
-                    st.session_state["discover_prefill"] = info["ticker"]
-                    st.switch_page("pages/1_Discover.py")
-            else:
-                st.markdown(f"""
-                <div class="opp-card">
-                  <div class="opp-bar" style="background:{color}"></div>
-                  <div class="risk-lbl" style="color:{color}">{icon} {label}</div>
-                  <div class="opp-why" style="margin-top:16px">
-                    Add more tickers in Settings to see {label.lower()} picks.
-                  </div>
-                </div>
-                """, unsafe_allow_html=True)
+today_picks = daily_opportunities()   # {cat: ticker} — rotates daily
+opp_cols = st.columns(3, gap="small")
+for col, (cat, (icon, label, color, default_why)) in zip(opp_cols, risk_cfg.items()):
+    with col:
+        info  = get_ticker_info(today_picks[cat])
+        pct   = info["change_pct"]
+        arrow = "▲" if pct >= 0 else "▼"
+        pct_c = "#00d4aa" if pct >= 0 else "#ff4757"
+        why   = one_line_description(info) or default_why
+        if len(why) > 110: why = why[:107] + "…"
+        st.markdown(f"""
+        <div class="opp-card">
+          <div class="opp-bar" style="background:{color}"></div>
+          <div class="risk-lbl" style="color:{color}">{icon} {label}</div>
+          <div class="opp-name">{info['name']}</div>
+          <div class="opp-price">
+            {format_price(info['price'])}
+            &nbsp;<span style="color:{pct_c}">{arrow} {pct:+.2f}%</span>
+          </div>
+          <div class="opp-why">{why}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button(f"Analyze {info['ticker']} →", key=f"opp_{cat}",
+                     use_container_width=True):
+            st.session_state["discover_prefill"] = info["ticker"]
+            st.switch_page("pages/1_Discover.py")
 
 # ── Concept of the Day ────────────────────────────────────────────────────────
 section("🧠 Concept of the Day")
