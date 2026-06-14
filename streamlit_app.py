@@ -120,6 +120,7 @@ risk_cfg = {
                  "Steady performer — lower reward but fewer surprises."),
 }
 
+tickers = tracked_tickers()
 today_picks = daily_opportunities()   # {cat: ticker} — rotates daily
 opp_cols = st.columns(3, gap="small")
 for col, (cat, (icon, label, color, default_why)) in zip(opp_cols, risk_cfg.items()):
