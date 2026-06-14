@@ -99,44 +99,71 @@ with col_preview:
         score, green, red = compute_health_score(info)
 
         if score >= 7:
-            verdict, v_color = "INVEST", "#00d4aa"
+            verdict, v_color = "INVEST ✅", "#00d4aa"
         elif score >= 4:
-            verdict, v_color = "WAIT", "#ffc107"
+            verdict, v_color = "WAIT ⏳", "#ffc107"
         else:
-            verdict, v_color = "AVOID", "#ff4757"
+            verdict, v_color = "AVOID ❌", "#ff4757"
 
-        pct    = info.get("change_pct", 0)
-        pct_c  = "#00d4aa" if pct >= 0 else "#ff4757"
-        arrow  = "▲" if pct >= 0 else "▼"
+        pct   = info.get("change_pct", 0)
+        pct_c = "#00d4aa" if pct >= 0 else "#ff4757"
+        arrow = "▲" if pct >= 0 else "▼"
+        positives = "; ".join(green) if green else "No major strengths identified"
+        concerns  = "; ".join(red)   if red  else "No major concerns identified"
 
-        st.markdown(f"""
-        <div style="background:#131720;border:1px solid #1e2d40;border-radius:14px;padding:20px;margin-top:8px">
-          <div style="font-size:.72rem;color:#8892a4;text-transform:uppercase;letter-spacing:.08em">Preview</div>
-          <div style="margin-top:10px">
-            <span style="color:#fff;font-size:1.1rem;font-weight:700">{info['name']}</span>
-            <span style="color:#8892a4"> · {t}</span>
-          </div>
-          <div style="margin:8px 0">
-            <span style="color:#fff;font-size:1.3rem;font-weight:800">{format_price(info['price'])}</span>
-            <span style="color:{pct_c};margin-left:8px">{arrow} {pct:+.2f}%</span>
-          </div>
-          <div style="display:flex;gap:12px;margin:12px 0">
-            <div style="background:#0e1117;padding:8px 14px;border-radius:8px;text-align:center">
-              <div style="color:#8892a4;font-size:.72rem">Health Score</div>
-              <div style="color:#fff;font-weight:700;font-size:1.1rem">{score}/10</div>
-            </div>
-            <div style="background:{v_color}18;border:1px solid {v_color};
-                padding:8px 20px;border-radius:8px;text-align:center">
-              <div style="color:#8892a4;font-size:.72rem">Verdict</div>
-              <div style="color:{v_color};font-weight:800">{verdict}</div>
-            </div>
-          </div>
-          <div style="margin-top:12px">
-            {"".join([f'<div style="color:#00d4aa;font-size:.8rem;margin:3px 0">✅ {f}</div>' for f in green[:2]])}
-            {"".join([f'<div style="color:#ff4757;font-size:.8rem;margin:3px 0">⚠️ {f}</div>' for f in red[:2]])}
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:.72rem;color:#8892a4;text-transform:uppercase;'
+                    f'letter-spacing:.08em;margin-bottom:8px">📧 Email preview</div>',
+                    unsafe_allow_html=True)
+
+        if "Verdict" in message_type:
+            preview_html = f"""
+            <div style="font-family:monospace;background:#0e1117;border:1px solid #1e2d40;
+                border-radius:10px;padding:16px;font-size:.82rem;color:#c5cdd8;line-height:1.7">
+              <b style="color:#fff">Subject:</b> {info['name']} ({t}) — {verdict}<br><br>
+              Quick update on <b style="color:#fff">{info['name']} ({t})</b>:<br><br>
+              Verdict: <b style="color:{v_color}">{verdict}</b><br>
+              Current price: <b style="color:#fff">{format_price(info['price'])}</b>
+              ({pct:+.2f}% today)<br>
+              Health score: <b style="color:#fff">{score}/10</b>
+            </div>"""
+
+        elif "Insight" in message_type:
+            preview_html = f"""
+            <div style="font-family:monospace;background:#0e1117;border:1px solid #1e2d40;
+                border-radius:10px;padding:16px;font-size:.82rem;color:#c5cdd8;line-height:1.7">
+              <b style="color:#fff">Subject:</b> Quick look at {info['name']} ({t})<br><br>
+              Price: <b style="color:#fff">{format_price(info['price'])}</b>
+              ({pct:+.2f}% today)<br>
+              Health: <b style="color:#fff">{score}/10</b> —
+              <b style="color:{v_color}">{verdict}</b><br><br>
+              ✅ <i>{positives}</i><br>
+              ⚠️ <i>{concerns}</i><br>
+              Market cap: <b style="color:#fff">{format_mktcap(info['market_cap'])}</b>
+            </div>"""
+
+        else:  # Full Analysis
+            desc = (info.get("description") or "")[:200]
+            if len(info.get("description","")) > 200:
+                desc += "…"
+            preview_html = f"""
+            <div style="font-family:monospace;background:#0e1117;border:1px solid #1e2d40;
+                border-radius:10px;padding:16px;font-size:.82rem;color:#c5cdd8;line-height:1.7">
+              <b style="color:#fff">Subject:</b> Full analysis — {info['name']} ({t})<br><br>
+              <b style="color:#fff">{info['name']} ({t})</b> · {info.get('sector','')}<br>
+              Price: <b style="color:#fff">{format_price(info['price'])}</b>
+              ({pct:+.2f}% today)<br>
+              Market cap: <b style="color:#fff">{format_mktcap(info['market_cap'])}</b><br><br>
+              <i style="color:#8892a4">{desc}</i><br><br>
+              Health score: <b style="color:#fff">{score}/10</b> →
+              <b style="color:{v_color}">{verdict}</b><br>
+              ✅ {positives}<br>
+              ⚠️ {concerns}<br><br>
+              <span style="color:#8892a4">+ full AI-generated analysis written by Claude…</span>
+            </div>"""
+
+        st.markdown(f'<div style="background:#131720;border:1px solid #1e2d40;'
+                    f'border-radius:14px;padding:16px;margin-top:4px">{preview_html}</div>',
+                    unsafe_allow_html=True)
     else:
         st.markdown("""
         <div style="background:#131720;border:1px dashed #1e2d40;border-radius:14px;
