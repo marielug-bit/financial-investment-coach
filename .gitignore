@@ -27,6 +27,9 @@ data/vector_store/*
 !data/processed/.gitkeep
 !data/vector_store/.gitkeep
 
+# Claude Code
+.claude/
+
 # IDE
 .idea/
 .vscode/

@@ -11,8 +11,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from mcp.server.fastmcp import FastMCP
-from src.retrieval import retrieve, add_documents
-from src.ingestion import ingest
+from src.rag.retrieval import retrieve, add_documents
+from src.rag.ingestion import ingest
 
 mcp = FastMCP("rag-agent")
 

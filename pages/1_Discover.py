@@ -228,7 +228,7 @@ with col_a:
                       f"stock have moved today? Recent headlines: {news_summary}. "
                       "If no clear reason, say so simply.")
             try:
-                from src.agent import FinancialAnalyzerAgent
+                from src.rag.agent import FinancialAnalyzerAgent
                 if "_rag_agent" not in st.session_state:
                     st.session_state._rag_agent = FinancialAnalyzerAgent()
                 agent = st.session_state._rag_agent
@@ -281,7 +281,7 @@ if uploaded:
     dest.write_bytes(uploaded.read())
     with st.spinner(f"Indexing {uploaded.name}…"):
         try:
-            from src.agent import FinancialAnalyzerAgent
+            from src.rag.agent import FinancialAnalyzerAgent
             if "_rag_agent" not in st.session_state:
                 st.session_state._rag_agent = FinancialAnalyzerAgent()
             ag = st.session_state._rag_agent
@@ -311,7 +311,7 @@ if user_q:
     st.markdown(f'<div class="chat-u">🧑 {user_q}</div>', unsafe_allow_html=True)
     with st.spinner("AI is thinking…"):
         try:
-            from src.agent import FinancialAnalyzerAgent
+            from src.rag.agent import FinancialAnalyzerAgent
             if "_rag_agent" not in st.session_state:
                 st.session_state._rag_agent = FinancialAnalyzerAgent()
             ans = st.session_state._rag_agent.ask(full_q)

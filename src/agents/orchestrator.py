@@ -76,12 +76,12 @@ def _server_config() -> dict:
         "cwd": _PROJECT_ROOT,
     }
     return {
-        "rag": {**base, "args": ["-m", "src.mcp_servers.rag_server"]},
-        "analysis": {**base, "args": ["-m", "src.mcp_servers.analysis_server"]},
-        "market": {**base, "args": ["-m", "src.mcp_servers.market_server"]},
-        "email": {**base, "args": ["-m", "src.mcp_servers.email_server"]},
-        "coach": {**base, "args": ["-m", "src.mcp_servers.coach_server"]},
-        "trading": {**base, "args": ["-m", "src.mcp_servers.trading_server"]},
+        "rag": {**base, "args": ["-m", "src.rag.rag_server"]},
+        "analysis": {**base, "args": ["-m", "src.agents.analysis_server"]},
+        "market": {**base, "args": ["-m", "src.agents.market_server"]},
+        "email": {**base, "args": ["-m", "src.agents.email_server"]},
+        "coach": {**base, "args": ["-m", "src.agents.coach_server"]},
+        "trading": {**base, "args": ["-m", "src.agents.trading_server"]},
     }
 
 
