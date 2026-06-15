@@ -61,7 +61,7 @@ LARGE_UNIVERSE: dict[str, list[str]] = {
     # Moderate volatility: established tech & consumer, typical ±10-20% swings
     "moderate": [
         "AAPL", "MSFT", "GOOGL", "META", "AMZN", "NFLX", "CRM", "ORCL",
-        "ADBE", "QCOM", "PYPL", "DIS", "SBUX", "UBER", "ABNB", "SQ",
+        "ADBE", "QCOM", "PYPL", "DIS", "SBUX", "UBER", "ABNB", "ETSY",
         "INTC", "SNAP", "PINS", "ZM", "JPM", "GS", "MS", "BAC",
         "UNH", "HD", "TGT", "COST", "NKE", "LOW", "TXN", "AVGO",
         "NOW", "INTU", "ISRG", "TMO", "DHR", "VEEV", "ZTS", "REGN",
