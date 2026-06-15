@@ -11,12 +11,12 @@ load_dotenv()
 from utils.theme import inject_css, section, kpi
 from utils.market import get_history, get_ticker_info, format_price, resolve_ticker
 
-st.set_page_config(page_title="Portfolio · Financial Intelligence",
+st.set_page_config(page_title="Portfolio · Financial Investment Coach",
                    page_icon="💼", layout="wide")
 inject_css()
 
 with st.sidebar:
-    st.markdown('<div class="sidebar-logo"><h3>📊 Financial Intelligence</h3></div>',
+    st.markdown('<div class="sidebar-logo"><h3>📊 Financial Investment Coach</h3></div>',
                 unsafe_allow_html=True)
     st.page_link("streamlit_app.py",     label="🏠 Home")
     st.page_link("pages/1_Discover.py",  label="🔍 Discover")

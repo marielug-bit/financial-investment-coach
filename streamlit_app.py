@@ -15,7 +15,7 @@ from utils.market import (
 )
 
 st.set_page_config(
-    page_title="Financial Intelligence",
+    page_title="Financial Investment Coach",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -57,7 +57,7 @@ _ticker_bar()
 # ── App title ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <h1 style="font-size:1.8rem;font-weight:800;color:#fff;margin:0 0 4px">
-  📊 Financial Intelligence
+  📊 Financial Investment Coach
 </h1>
 <p style="color:#8892a4;font-size:.9rem;margin:0 0 8px">
   Your personal investment coach — powered by Claude AI

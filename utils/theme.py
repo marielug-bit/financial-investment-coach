@@ -226,7 +226,7 @@ def sidebar_logo():
     with st.sidebar:
         st.markdown("""
         <div class="sidebar-logo">
-          <h3>📊 Financial Intelligence</h3>
+          <h3>📊 Financial Investment Coach</h3>
           <p>RAG · Market · Trading · AI</p>
         </div>
         """, unsafe_allow_html=True)

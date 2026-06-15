@@ -9,12 +9,12 @@ load_dotenv()
 
 from utils.theme import inject_css, section
 
-st.set_page_config(page_title="Settings · Financial Intelligence",
+st.set_page_config(page_title="Settings · Financial Investment Coach",
                    page_icon="⚙️", layout="wide")
 inject_css()
 
 with st.sidebar:
-    st.markdown('<div class="sidebar-logo"><h3>📊 Financial Intelligence</h3></div>',
+    st.markdown('<div class="sidebar-logo"><h3>📊 Financial Investment Coach</h3></div>',
                 unsafe_allow_html=True)
     st.page_link("streamlit_app.py",     label="🏠 Home")
     st.page_link("pages/1_Discover.py",  label="🔍 Discover")
@@ -25,7 +25,7 @@ with st.sidebar:
 
 st.markdown("""
 <h1 style="font-size:1.6rem;font-weight:800;color:#fff;margin:0 0 4px">⚙️ Settings</h1>
-<p style="color:#8892a4;font-size:.88rem;margin:0 0 20px">Configure your Financial Intelligence app</p>
+<p style="color:#8892a4;font-size:.88rem;margin:0 0 20px">Configure your Financial Investment Coach app</p>
 """, unsafe_allow_html=True)
 
 ENV_PATH = Path(__file__).parent.parent / ".env"

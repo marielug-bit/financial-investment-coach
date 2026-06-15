@@ -13,13 +13,13 @@ from utils.market import (
     compute_health_score, format_price, format_mktcap, one_line_description,
 )
 
-st.set_page_config(page_title="Discover · Financial Intelligence",
+st.set_page_config(page_title="Discover · Financial Investment Coach",
                    page_icon="🔍", layout="wide")
 inject_css()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown('<div class="sidebar-logo"><h3>📊 Financial Intelligence</h3></div>',
+    st.markdown('<div class="sidebar-logo"><h3>📊 Financial Investment Coach</h3></div>',
                 unsafe_allow_html=True)
     st.page_link("streamlit_app.py",  label="🏠 Home")
     st.page_link("pages/1_Discover.py",  label="🔍 Discover", disabled=True)
